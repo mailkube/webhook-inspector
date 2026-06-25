@@ -1,0 +1,11 @@
+services:
+  webhook-inspector:
+    build: .
+    # Provide NGROK_AUTHTOKEN / WEBHOOK_SECRET / USE_NGROK / PORT via a local .env.
+    env_file:
+      - path: .env
+        required: false
+    # Port mapping matters when USE_NGROK=false (hit it directly on localhost).
+    # With the tunnel on, ngrok dials out and this mapping is harmless.
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"

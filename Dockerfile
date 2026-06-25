@@ -1,5 +1,5 @@
 # glibc base (not Alpine) so ngrok's prebuilt manylinux wheel installs.
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # uv from the official distroless image.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

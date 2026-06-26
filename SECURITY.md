@@ -32,7 +32,7 @@ When reporting, please include:
 
 `webhook-inspector` is meant to run **locally** for testing. Keep in mind:
 
-- The signing secret (`WEBHOOK_SECRET`) and `NGROK_AUTHTOKEN` belong in your
-  local `.env`, which is git-ignored — never commit them.
-- An ngrok tunnel exposes your local server to the public internet for its
+- The signing secret (`WEBHOOK_SECRET`) belongs in your local `.env`, which is
+  git-ignored — never commit it.
+- A cloudflared tunnel exposes your local server to the public internet for its
   lifetime. Run it only while testing and stop it when done.

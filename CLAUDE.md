@@ -1,7 +1,7 @@
 # Project Rules
 
 `webhook-inspector` is a small public (Apache-2.0) FastAPI tool for testing mailkube webhooks
-locally over an in-process ngrok tunnel. Load the relevant rule file from `.rules/` based on
+locally over a cloudflared quick tunnel. Load the relevant rule file from `.rules/` based on
 the task.
 
 ## Rule Index
@@ -21,9 +21,9 @@ the task.
 - **SPDX header** (`# SPDX-License-Identifier: Apache-2.0`) on every source file.
 - **Conventional Commits** for PR titles (squash-merged) — for readable history only; nothing is
   released.
-- **No secrets in the repo** — `NGROK_AUTHTOKEN` / `WEBHOOK_SECRET` live in git-ignored `.env`
-  (and are excluded from the Docker image via `.dockerignore`).
-- **Lazy-import heavy/optional deps** (e.g. `ngrok`) inside functions so the package and tests
-  load without them when tunnelling is disabled.
+- **No secrets in the repo** — `WEBHOOK_SECRET` lives in git-ignored `.env`
+  (and is excluded from the Docker image via `.dockerignore`).
+- **The tunnel is an external binary** — `tunnel.py` shells out to the `cloudflared` binary via
+  `asyncio.subprocess` (stdlib only); there is no Python tunnel dependency to import.
 - **Public-repo etiquette** — keep `README`, `CONTRIBUTING`, and `SECURITY` current with
   user-visible changes.

@@ -25,7 +25,7 @@ Run the tool locally:
 
 ```bash
 uv run webhook-inspector --no-tunnel    # serve locally without a tunnel
-uv run webhook-inspector                # open an ngrok tunnel (needs NGROK_AUTHTOKEN)
+uv run webhook-inspector                # open a cloudflared quick tunnel (needs the cloudflared binary)
 ```
 
 ## Quality gates
@@ -52,7 +52,7 @@ Suggested scopes: `server`, `tunnel`, `docker`, `ci`, `deps`, `docs`.
 
 ```
 feat(server): support a custom response status on deliveries
-fix(tunnel): handle a missing NGROK_AUTHTOKEN gracefully
+fix(tunnel): handle a missing cloudflared binary gracefully
 docs: clarify the verification handshake
 ```
 

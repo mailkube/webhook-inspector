@@ -2,7 +2,7 @@
 """Tests for the webhook-inspector receiver.
 
 The handshake and signature logic are exercised through FastAPI's TestClient with the
-ngrok tunnel disabled. The signature assertions mirror the mailkube sender's algorithm
+tunnel disabled. The signature assertions mirror the mailkube sender's algorithm
 exactly (``sha256=hmac_sha256(secret, raw_body)``), guarding interoperability.
 """
 
@@ -11,7 +11,7 @@ import hmac
 import json
 import os
 
-os.environ.setdefault("USE_NGROK", "false")
+os.environ.setdefault("USE_TUNNEL", "false")
 os.environ.setdefault("WEBHOOK_SECRET", "test-secret")
 
 from fastapi.testclient import TestClient  # noqa: E402  (env must be set before import)
@@ -74,6 +74,6 @@ def test_post_non_json_delivery_returns_200() -> None:
 
 
 def test_lifespan_runs_without_tunnel() -> None:
-    # Entering the context manager runs startup/shutdown; USE_NGROK=false → no tunnel opened.
+    # Entering the context manager runs startup/shutdown; USE_TUNNEL=false → no tunnel opened.
     with TestClient(app) as ctx_client:
         assert ctx_client.get("/").status_code == 200

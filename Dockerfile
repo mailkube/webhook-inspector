@@ -1,8 +1,15 @@
-# glibc base (not Alpine) so ngrok's prebuilt manylinux wheel installs.
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # uv from the official distroless image.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# cloudflared (static Go binary) for the quick tunnel — arch-matched to the build target.
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${TARGETARCH}" \
+       -o /usr/local/bin/cloudflared \
+    && chmod +x /usr/local/bin/cloudflared \
+    && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -25,5 +32,5 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 EXPOSE 5000
 
-# Override env (NGROK_AUTHTOKEN, WEBHOOK_SECRET, USE_NGROK) at runtime.
+# Override env (WEBHOOK_SECRET, USE_TUNNEL) at runtime.
 ENTRYPOINT ["webhook-inspector"]

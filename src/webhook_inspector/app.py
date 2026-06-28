@@ -25,17 +25,18 @@ load_dotenv()
 
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "5000"))
-USE_NGROK = os.environ.get("USE_NGROK", "true").lower() == "true"
+USE_TUNNEL = os.environ.get("USE_TUNNEL", "true").lower() == "true"
+TUNNEL_PROTOCOL = os.environ.get("TUNNEL_PROTOCOL", "http2")
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Open the in-process ngrok tunnel on startup (when enabled); close it on shutdown."""
-    listener = open_tunnel(PORT) if USE_NGROK else None
+    """Open the cloudflared tunnel on startup (when enabled); close it on shutdown."""
+    tunnel = await open_tunnel(PORT, TUNNEL_PROTOCOL) if USE_TUNNEL else None
     try:
         yield
     finally:
-        close_tunnel(listener)
+        await close_tunnel(tunnel)
 
 
 app = FastAPI(title="webhook-inspector", lifespan=lifespan)

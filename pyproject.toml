@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "webhook-inspector"
 version = "0.1.0"
-description = "A local receiver for testing mailkube webhooks, with an in-process ngrok tunnel."
+description = "A local receiver for testing mailkube webhooks, with a cloudflared quick tunnel."
 authors = [{ name = "Mailtactic, Corp." }]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
-keywords = ["webhook", "ngrok", "fastapi", "mailkube", "testing"]
+keywords = ["webhook", "cloudflared", "fastapi", "mailkube", "testing"]
 classifiers = [
     "Private :: Do Not Upload",
     "Development Status :: 4 - Beta",
@@ -22,8 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.110",
-    "uvicorn[standard]>=0.29",
-    "ngrok>=1.4",
+    "uvicorn[standard]>=0.49.0",
     "python-dotenv>=1.0",
 ]
 
@@ -41,7 +40,7 @@ dev = [
     "pytest-cov>=5.0",
     "httpx>=0.27",
     "mypy>=1.10",
-    "ruff>=0.6",
+    "ruff>=0.15.20",
 ]
 
 [tool.hatch.build.targets.wheel]

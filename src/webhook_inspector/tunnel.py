@@ -151,7 +151,6 @@ async def close_tunnel(tunnel: _Tunnel | None) -> None:
     await _terminate(tunnel.process)
 
 
-
 async def _read_url(stream: asyncio.StreamReader) -> str | None:
     """Read stderr lines until the quick-tunnel URL appears; ``None`` if the stream ends first."""
     while True:

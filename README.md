@@ -9,8 +9,12 @@
 A tiny local receiver for testing [**mailkube**](https://mailkube.com) webhooks and getting
 familiar with how they work. It starts a FastAPI server and opens a
 [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
-**quick tunnel** (account-less, no signup), then prints a public HTTPS URL you can use as a
-webhook `endpoint_url`.
+tunnel, then prints a public HTTPS URL you can use as a webhook `endpoint_url`.
+
+Two tunnel modes are supported:
+
+- **Quick tunnel** (default, no account needed) — ephemeral `*.trycloudflare.com` URL, changes on every run.
+- **Named tunnel** (`--tunnel-name`, Cloudflare account required) — fixed URL backed by a pre-created tunnel and DNS hostname.
 
 It does two things:
 
@@ -24,6 +28,7 @@ It does two things:
 
 - [Requirements](#requirements)
 - [Run with uv](#run-with-uv)
+- [Named tunnel setup](#named-tunnel-setup)
 - [Run with Docker](#run-with-docker)
 - [Use it](#use-it)
 - [How it works](#how-it-works)
@@ -37,8 +42,9 @@ It does two things:
 
 - [uv](https://docs.astral.sh/uv/) **or** Docker
 - The [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
-  binary on your `PATH` (e.g. `brew install cloudflared`) — no Cloudflare account needed.
-  Not required for `--no-tunnel`, and already bundled in the Docker image.
+  binary on your `PATH` (e.g. `brew install cloudflared`). Not required for `--no-tunnel`, and already bundled in the Docker image.
+  - Quick tunnel: no Cloudflare account needed.
+  - Named tunnel: requires a Cloudflare account and a domain managed by Cloudflare (see [Named tunnel setup](#named-tunnel-setup)).
 
 Optionally create a local config (only needed to set `WEBHOOK_SECRET`):
 
@@ -49,14 +55,15 @@ cp .env.example .env
 ## Run with uv
 
 ```bash
-uv run webhook-inspector                 # opens a cloudflared quick tunnel
-uv run webhook-inspector --no-tunnel     # serve locally only, no tunnel
+uv run webhook-inspector                              # quick tunnel (ephemeral URL)
+uv run webhook-inspector --tunnel-name my-tunnel      # named tunnel (fixed URL)
+uv run webhook-inspector --no-tunnel                  # serve locally only, no tunnel
 ```
 
-`uv` creates the environment and installs everything on first run. Flags: `--host`,
-`--port <n>`, `--no-tunnel`.
+`uv` creates the environment and installs everything on first run. Flags: `--host`, `--port <n>`,
+`--no-tunnel`, `--tunnel-name <name>`.
 
-It prints a public URL:
+Quick tunnel prints an ephemeral URL:
 
 ```
 ==================================================================
@@ -64,6 +71,39 @@ It prints a public URL:
   Use it as your webhook endpoint_url (the https:// URL above).
 ==================================================================
 ```
+
+Named tunnel reminds you to use your pre-configured hostname:
+
+```
+==================================================================
+  Named tunnel : my-tunnel
+  Use your configured DNS hostname as the webhook endpoint_url.
+==================================================================
+```
+
+## Named tunnel setup
+
+A named tunnel gives you a **fixed public URL** that survives restarts. It requires a Cloudflare
+account and a domain managed by Cloudflare.
+
+One-time setup:
+
+```bash
+cloudflared login                                                    # authenticate
+cloudflared tunnel create my-tunnel                                  # create the tunnel
+cloudflared tunnel route dns my-tunnel webhook.yourdomain.com        # assign a hostname
+```
+
+Then run:
+
+```bash
+uv run webhook-inspector --tunnel-name my-tunnel
+```
+
+`webhook.yourdomain.com` is now permanently your webhook `endpoint_url` — no URL updates needed
+after restarts.
+
+> You can also set `TUNNEL_NAME=my-tunnel` in `.env` so you never have to pass the flag.
 
 ## Run with Docker
 
@@ -108,19 +148,20 @@ and compares it when `WEBHOOK_SECRET` is set.
 
 All via environment variables (see [.env.example](.env.example)):
 
-| Variable         | Default     | Purpose                                                        |
-| ---------------- | ----------- | -------------------------------------------------------------- |
-| `WEBHOOK_SECRET` | —           | Signing secret (the `plain_secret` from create). Empty = skip. |
-| `HOST`           | `127.0.0.1` | Bind address (Docker sets `0.0.0.0`).                          |
-| `PORT`           | `5000`      | Local port to listen on (the tunnel forwards to it).           |
-| `USE_TUNNEL`     | `true`      | Set `false` to serve locally only (no tunnel).                 |
-| `TUNNEL_PROTOCOL`| `http2`     | cloudflared edge transport. `http2` (TCP 443) survives networks that block QUIC's UDP 7844; use `quic`/`auto` only if UDP 7844 is open. |
+| Variable          | Default     | Purpose                                                        |
+| ----------------- | ----------- | -------------------------------------------------------------- |
+| `WEBHOOK_SECRET`  | —           | Signing secret (the `plain_secret` from create). Empty = skip. |
+| `HOST`            | `127.0.0.1` | Bind address (Docker sets `0.0.0.0`).                          |
+| `PORT`            | `5000`      | Local port to listen on (the tunnel forwards to it).           |
+| `USE_TUNNEL`      | `true`      | Set `false` to serve locally only (no tunnel).                 |
+| `TUNNEL_NAME`     | —           | Named tunnel to use (see [Named tunnel setup](#named-tunnel-setup)). When set, overrides quick-tunnel mode. |
+| `TUNNEL_PROTOCOL` | `http2`     | cloudflared edge transport (quick tunnel only). `http2` (TCP 443) survives networks that block QUIC's UDP 7844; use `quic`/`auto` only if UDP 7844 is open. |
 
 ## Notes
 
 - **Quick-tunnel URLs change on every run.** When the URL changes, point your endpoint at the new
   one — a `PATCH` of `endpoint_url` re-runs the handshake, which this server handles
-  automatically.
+  automatically. Use a [named tunnel](#named-tunnel-setup) to avoid this.
 - mailkube caps **verification probes at 80/hour per org**; don't loop-create endpoints faster
   than that or you'll get `429`s before the probe even reaches here.
 - **On macOS, port `5000` is taken by AirPlay Receiver** (Control Center). Either disable it

@@ -27,12 +27,13 @@ HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "5000"))
 USE_TUNNEL = os.environ.get("USE_TUNNEL", "true").lower() == "true"
 TUNNEL_PROTOCOL = os.environ.get("TUNNEL_PROTOCOL", "http2")
+TUNNEL_NAME = os.environ.get("TUNNEL_NAME") or None
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Open the cloudflared tunnel on startup (when enabled); close it on shutdown."""
-    tunnel = await open_tunnel(PORT, TUNNEL_PROTOCOL) if USE_TUNNEL else None
+    tunnel = await open_tunnel(PORT, TUNNEL_PROTOCOL, TUNNEL_NAME) if USE_TUNNEL else None
     try:
         yield
     finally:

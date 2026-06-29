@@ -1,11 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Quick-tunnel management via the official ``cloudflared`` binary.
+"""Tunnel management via the official ``cloudflared`` binary.
 
-cloudflared has no first-party Python SDK, so the tunnel is an out-of-process subprocess:
-``cloudflared tunnel --url http://localhost:<port>`` opens an account-less *quick tunnel* and
-logs the assigned ``*.trycloudflare.com`` URL to stderr. These helpers spawn it, scrape that URL,
-keep stderr drained (so cloudflared's continuous logging never blocks on a full pipe), and tear
-the process down on shutdown. They are async coroutines awaited from the app's async lifespan.
+Two modes are supported:
+
+* **Quick tunnel** (default, no account required): ``cloudflared tunnel --url http://localhost:<port>``
+  opens an account-less tunnel and logs an ephemeral ``*.trycloudflare.com`` URL to stderr.
+  These helpers scrape that URL from stderr output.
+
+* **Named tunnel** (fixed URL, Cloudflare account required): ``cloudflared tunnel run --url
+  http://localhost:<port> <tunnel-name>`` uses a pre-created named tunnel whose DNS hostname was
+  configured with ``cloudflared tunnel route dns``. The public URL is fixed and known in advance,
+  so no URL scraping is needed.
+
+In both modes the process is kept alive and torn down on shutdown. stderr is continuously drained
+so cloudflared's logging never blocks on a full pipe.
 """
 
 from __future__ import annotations
@@ -22,26 +30,27 @@ _INSTALL_HINT = "https://developers.cloudflare.com/cloudflare-one/connections/co
 
 @dataclass
 class _Tunnel:
-    """A running cloudflared quick tunnel and its public URL."""
+    """A running cloudflared tunnel process."""
 
     process: asyncio.subprocess.Process
-    _url: str
     _drain: asyncio.Task[None]  # keeps stderr drained so cloudflared never blocks on a full pipe
 
-    def url(self) -> str:
-        """Return the public ``https://*.trycloudflare.com`` URL."""
-        return self._url
 
+async def open_tunnel(port: int, protocol: str = "http2", tunnel_name: str | None = None) -> _Tunnel | None:
+    """Open a cloudflared tunnel to ``port`` and print the public URL.
 
-async def open_tunnel(port: int, protocol: str = "http2") -> _Tunnel | None:
-    """Open a cloudflared quick tunnel to ``port`` and print the public URL.
+    When ``tunnel_name`` is ``None`` (default), opens an account-less quick tunnel and scrapes
+    the assigned ``*.trycloudflare.com`` URL from stderr.
 
-    ``protocol`` is cloudflared's edge transport. The default ``http2`` runs over outbound
-    TCP 443; the cloudflared default (``quic``) needs outbound UDP 7844, which many networks
-    block — leaving the tunnel registered but unreachable. Override via ``TUNNEL_PROTOCOL``.
+    When ``tunnel_name`` is provided, runs the named tunnel (``cloudflared tunnel run``) whose
+    DNS hostname was pre-configured with ``cloudflared tunnel route dns``. The public URL is
+    already fixed, so no scraping is needed — a reminder banner is printed instead.
 
-    Returns the tunnel (so it can be torn down on shutdown), or ``None`` if it could not be
-    established — in which case the server still runs locally.
+    ``protocol`` is cloudflared's edge transport for quick tunnels. The default ``http2`` runs
+    over outbound TCP 443; ``quic`` needs outbound UDP 7844, which many networks block.
+    Override via ``TUNNEL_PROTOCOL``.
+
+    Returns the tunnel on success, or ``None`` — in which case the server still runs locally.
     """
     if shutil.which("cloudflared") is None:
         print(
@@ -52,6 +61,13 @@ async def open_tunnel(port: int, protocol: str = "http2") -> _Tunnel | None:
         )
         return None
 
+    if tunnel_name is not None:
+        return await _open_named_tunnel(port, tunnel_name)
+    return await _open_quick_tunnel(port, protocol)
+
+
+async def _open_quick_tunnel(port: int, protocol: str) -> _Tunnel | None:
+    """Spawn a cloudflared quick tunnel and scrape its ephemeral URL from stderr."""
     process = await asyncio.create_subprocess_exec(
         "cloudflared",
         "tunnel",
@@ -87,8 +103,44 @@ async def open_tunnel(port: int, protocol: str = "http2") -> _Tunnel | None:
         return None
 
     drain = asyncio.create_task(_drain(process.stderr))
-    _print_banner(url)
-    return _Tunnel(process, url, drain)
+    _print_quick_banner(url)
+    return _Tunnel(process, drain)
+
+
+async def _open_named_tunnel(port: int, tunnel_name: str) -> _Tunnel | None:
+    """Spawn a cloudflared named tunnel (fixed URL, requires ``cloudflared login``)."""
+    process = await asyncio.create_subprocess_exec(
+        "cloudflared",
+        "tunnel",
+        "run",
+        "--url",
+        f"http://127.0.0.1:{port}",
+        tunnel_name,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    assert process.stderr is not None
+
+    # Named tunnels don't emit a URL — they use the hostname configured via
+    # ``cloudflared tunnel route dns``. Wait briefly to catch immediate startup failures
+    # (bad tunnel name, not logged in, etc.) before declaring success.
+    try:
+        exited = await asyncio.wait_for(process.wait(), timeout=3.0)
+    except (TimeoutError, asyncio.TimeoutError):
+        exited = None  # still running — good
+
+    if exited is not None:
+        print(
+            f"\n⚠️  cloudflared named tunnel '{tunnel_name}' exited immediately (code {exited})."
+            "\n   Check that you are logged in (`cloudflared login`) and the tunnel name is correct."
+            "\n   Serving locally only.\n",
+            flush=True,
+        )
+        return None
+
+    drain = asyncio.create_task(_drain(process.stderr))
+    _print_named_banner(tunnel_name)
+    return _Tunnel(process, drain)
 
 
 async def close_tunnel(tunnel: _Tunnel | None) -> None:
@@ -97,6 +149,7 @@ async def close_tunnel(tunnel: _Tunnel | None) -> None:
         return
     tunnel._drain.cancel()
     await _terminate(tunnel.process)
+
 
 
 async def _read_url(stream: asyncio.StreamReader) -> str | None:
@@ -132,7 +185,7 @@ async def _terminate(process: asyncio.subprocess.Process) -> None:
         pass
 
 
-def _print_banner(url: str) -> None:
+def _print_quick_banner(url: str) -> None:
     print(
         "\n"
         + "=" * 66
@@ -142,4 +195,17 @@ def _print_banner(url: str) -> None:
         + "=" * 66
         + "\n",
         flush=True,  # stdout is block-buffered when piped/redirected; flush so the URL shows now
+    )
+
+
+def _print_named_banner(tunnel_name: str) -> None:
+    print(
+        "\n"
+        + "=" * 66
+        + f"\n  Named tunnel : {tunnel_name}"
+        + "\n  Use your configured DNS hostname as the webhook endpoint_url."
+        + "\n"
+        + "=" * 66
+        + "\n",
+        flush=True,
     )

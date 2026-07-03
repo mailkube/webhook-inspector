@@ -6,6 +6,8 @@ the task.
 
 ## Rule Index
 
+> **Index every rule (required).** Every file in `.rules/` MUST have a row in the table below. When you add or rename a `.rules/` file, add or update its row in the **same change** — an unindexed rule is invisible, because this index is what drives progressive disclosure. Never leave `.rules/` and this index out of sync. This convention holds for every workspace project that has both a `.rules/` directory and a CLAUDE.md.
+
 | Rule File | Load When |
 |---|---|
 | `.rules/WEBHOOK_CONTRACT.md` | Touching the verification handshake or `X-Webhook-Sig` signature logic — it must stay byte-compatible with the mailkube API (the source of truth). |

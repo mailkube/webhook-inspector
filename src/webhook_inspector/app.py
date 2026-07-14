@@ -15,6 +15,7 @@ import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
@@ -43,18 +44,37 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="webhook-inspector", lifespan=lifespan)
 
 
-def _check_signature(raw_body: bytes, sig_header: str) -> str:
+FRESHNESS_TOLERANCE_SECONDS = 300
+
+
+def _timestamp_age(ts: str) -> str:
+    """Return a human note about how old ``X-Webhook-Ts`` is, for replay-window awareness.
+
+    Informational only — this dev tool always accepts the delivery. A production receiver
+    would *reject* a timestamp older than its tolerance (see ``.rules/WEBHOOK_CONTRACT.md``).
+    """
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(ts)).total_seconds()
+    except ValueError:
+        return ""
+    flag = "fresh" if abs(age) <= FRESHNESS_TOLERANCE_SECONDS else f"stale > {FRESHNESS_TOLERANCE_SECONDS}s"
+    return f"  (age {age:.0f}s, {flag})"
+
+
+def _check_signature(raw_body: bytes, sig_header: str, webhook_id: str, ts: str) -> str:
     """Verify ``X-Webhook-Sig`` against ``WEBHOOK_SECRET``; return a human verdict.
 
-    Mirrors the sender side exactly: ``hmac_sha256(secret, raw_body)`` hex-encoded, sent
-    as ``sha256=<hex>``. The raw body bytes must be used as-received (never a re-serialized
-    JSON) or the digest won't match.
+    Mirrors the sender side exactly: the HMAC-SHA256 is computed over the signing input
+    ``f"{X-Webhook-Id}.{X-Webhook-Ts}.".encode() + raw_body`` and sent as ``sha256=<hex>``.
+    The raw body bytes must be used as-received (never a re-serialized JSON) or the digest
+    won't match. ``X-Webhook-Id``/``X-Webhook-Ts`` are read from the delivery headers.
     """
     secret = os.environ.get("WEBHOOK_SECRET", "")
     if not secret:
         return "skipped (set WEBHOOK_SECRET to verify)"
     expected = sig_header.removeprefix("sha256=")
-    actual = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    signing_input = f"{webhook_id}.{ts}.".encode() + raw_body
+    actual = hmac.new(secret.encode(), signing_input, hashlib.sha256).hexdigest()
     return "valid ✅" if hmac.compare_digest(actual, expected) else "INVALID ❌"
 
 
@@ -75,15 +95,17 @@ async def verify(request: Request) -> Response:
 async def receive(request: Request) -> Response:
     """Log a webhook delivery; always answers 200 so mailkube marks it delivered."""
     raw = await request.body()
-    verdict = _check_signature(raw, request.headers.get("x-webhook-sig", ""))
+    webhook_id = request.headers.get("x-webhook-id", "")
+    ts = request.headers.get("x-webhook-ts", "")
+    verdict = _check_signature(raw, request.headers.get("x-webhook-sig", ""), webhook_id, ts)
     try:
         body = json.dumps(json.loads(raw), indent=2)
     except ValueError:
         body = raw.decode("utf-8", "replace")
     print(
         "\n📨 delivery received"
-        f"\n   Webhook-Id : {request.headers.get('x-webhook-id')}"
-        f"\n   Webhook-Ts : {request.headers.get('x-webhook-ts')}"
+        f"\n   Webhook-Id : {webhook_id}"
+        f"\n   Webhook-Ts : {ts}{_timestamp_age(ts)}"
         f"\n   Signature  : {verdict}"
         f"\n   Body       : {body}\n"
     )

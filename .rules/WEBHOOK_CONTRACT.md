@@ -25,18 +25,29 @@ which echoes the challenge on **any** path.
 
 ## 2. Delivery signature (`X-Webhook-Sig`)
 
-Deliveries are `POST`s with header:
+Deliveries are `POST`s with these headers:
 
 ```
+X-Webhook-Id:  <delivery uuid>     # stable across retries — dedupe on it
+X-Webhook-Ts:  <ISO 8601>          # per-attempt send time — fresh on every retry
 X-Webhook-Sig: sha256=<hex>
 ```
 
-where `<hex> = hmac_sha256(secret, raw_request_body).hexdigest()` and `secret` is the
-`plain_secret` returned once at endpoint creation. Verification rules:
+where `<hex> = hmac_sha256(secret, signing_input).hexdigest()`, the **signing input** is
+
+```
+signing_input = f"{X-Webhook-Id}.{X-Webhook-Ts}.".encode() + raw_request_body
+```
+
+and `secret` is the `plain_secret` returned once at endpoint creation. Verification rules:
 
 - Compute the HMAC over the **raw body bytes as received** — never a re-serialized JSON
   (whitespace differences break the digest).
+- Bind `X-Webhook-Id` and `X-Webhook-Ts` into the signing input exactly as above.
 - Compare with `hmac.compare_digest` (constant-time).
+- **Replay protection:** a production receiver rejects a delivery whose `X-Webhook-Ts` is
+  older than a tolerance (~5 min). This tool is a dev inspector — it always accepts and just
+  *prints* the timestamp age — but the tolerance is the point of the per-attempt timestamp.
 
 Implemented in `_check_signature()` in [`src/webhook_inspector/app.py`](../src/webhook_inspector/app.py);
 guarded by `tests/test_app.py`, which reproduces the sender's algorithm independently.

@@ -141,8 +141,11 @@ The receiver must answer `200` with the body equal to `<one-time-token>`. webhoo
 it on any path.
 
 **Signature.** Deliveries arrive as `POST`s carrying `X-Webhook-Sig: sha256=<hmac>`, where the
-HMAC is SHA-256 over the **raw** request body using your signing secret. webhook-inspector recomputes
-and compares it when `WEBHOOK_SECRET` is set.
+HMAC is SHA-256 over `"{X-Webhook-Id}.{X-Webhook-Ts}.".encode() + raw_body` using your signing
+secret. `X-Webhook-Id` is stable across retries (dedupe on it); `X-Webhook-Ts` is a fresh
+per-attempt timestamp, so a production receiver can reject stale replays (~5 min tolerance).
+webhook-inspector recomputes and compares the signature when `WEBHOOK_SECRET` is set, and prints
+the timestamp age.
 
 ## Configuration
 

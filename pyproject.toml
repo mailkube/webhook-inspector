@@ -10,7 +10,7 @@ authors = [{ name = "Mailtactic, Corp." }]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.10,<4.0"
+requires-python = ">=3.12,<4.0"
 keywords = ["webhook", "cloudflared", "fastapi", "mailkube", "testing"]
 classifiers = [
     "Private :: Do Not Upload",
@@ -24,6 +24,8 @@ dependencies = [
     "fastapi>=0.139.2",
     "uvicorn[standard]>=0.51.0",
     "python-dotenv>=1.0",
+    "mailkube>=1.0.0",
+    "pydantic>=2.7,<3",
 ]
 
 [project.urls]
@@ -40,7 +42,7 @@ dev = [
     "pytest-cov>=5.0",
     "httpx>=0.27",
     "mypy>=2.3.0",
-    "ruff>=0.15.21",
+    "ruff>=0.16.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -49,7 +51,7 @@ packages = ["src/webhook_inspector"]
 # ── Lint & format ─────────────────────────────────────────────────────────────
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -57,7 +59,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 # ── Type checking ─────────────────────────────────────────────────────────────
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 files = ["src"]

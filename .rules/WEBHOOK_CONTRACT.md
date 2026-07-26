@@ -45,12 +45,14 @@ and `secret` is the `plain_secret` returned once at endpoint creation. Verificat
   (whitespace differences break the digest).
 - Bind `X-Webhook-Id` and `X-Webhook-Ts` into the signing input exactly as above.
 - Compare with `hmac.compare_digest` (constant-time).
-- **Replay protection:** a production receiver rejects a delivery whose `X-Webhook-Ts` is
-  older than a tolerance (~5 min). This tool is a dev inspector — it always accepts and just
-  *prints* the timestamp age — but the tolerance is the point of the per-attempt timestamp.
+- **Replay protection:** a delivery whose `X-Webhook-Ts` is older than a tolerance (~5 min) is
+  rejected. The per-attempt timestamp is the point of this window.
 
-Implemented in `_check_signature()` in [`src/webhook_inspector/app.py`](../src/webhook_inspector/app.py);
-guarded by `tests/test_app.py`, which reproduces the sender's algorithm independently.
+Implemented by delegating to the published `mailkube` SDK (`verify_signature` + `parse_event`)
+in [`src/webhook_inspector/app.py`](../src/webhook_inspector/app.py) `receive()`, which returns
+`400` on a missing, stale, or mismatched signature when `WEBHOOK_SECRET` is set. Using the SDK is
+what keeps this tool byte-compatible with the API instead of a hand-rolled copy. Guarded by
+`tests/test_app.py`, which reproduces the sender's algorithm independently.
 
 ## Changing this code
 

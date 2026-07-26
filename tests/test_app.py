@@ -1,30 +1,65 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the webhook-inspector receiver.
 
-The handshake and signature logic are exercised through FastAPI's TestClient with the
-tunnel disabled. The signature assertions mirror the mailkube sender's algorithm
-exactly (``sha256=hmac_sha256(secret, raw_body)``), guarding interoperability.
+The handshake and delivery endpoints are exercised through FastAPI's TestClient with the tunnel
+disabled. ``_sign`` reproduces the mailkube sender's HMAC algorithm independently — on the
+receiver side of the trust boundary — so these tests guard interoperability with the ``mailkube``
+SDK rather than merely re-asserting its behavior.
 """
 
 import hashlib
 import hmac
 import json
 import os
+from datetime import UTC, datetime
 
 os.environ.setdefault("USE_TUNNEL", "false")
 os.environ.setdefault("WEBHOOK_SECRET", "test-secret")
 
 from fastapi.testclient import TestClient  # noqa: E402  (env must be set before import)
 
-from webhook_inspector.app import _check_signature, app  # noqa: E402
+from webhook_inspector.app import app  # noqa: E402
 
 client = TestClient(app)
 
+SECRET = b"test-secret"
 
-def _sign(secret: bytes, body: bytes, webhook_id: str = "d1", ts: str = "2026-07-13T10:00:00+00:00") -> str:
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _sign(body: bytes, *, webhook_id: str = "d1", ts: str | None = None) -> dict[str, str]:
     # Reproduce the sender contract independently: HMAC over "id.ts." + raw body.
-    signing_input = f"{webhook_id}.{ts}.".encode() + body
-    return "sha256=" + hmac.new(secret, signing_input, hashlib.sha256).hexdigest()
+    timestamp = ts or _now_iso()
+    signing_input = f"{webhook_id}.{timestamp}.".encode() + body
+    digest = hmac.new(SECRET, signing_input, hashlib.sha256).hexdigest()
+    return {"X-Webhook-Id": webhook_id, "X-Webhook-Ts": timestamp, "X-Webhook-Sig": f"sha256={digest}"}
+
+
+def _delivered_payload() -> bytes:
+    return json.dumps(
+        {
+            "type": "email.delivered",
+            "created_at": "2026-07-13T10:00:00+00:00",
+            "data": {
+                "email_id": "e1",
+                "created_at": "2026-07-13T10:00:00+00:00",
+                "domain": "acme.com",
+                "subject": "Hi",
+                "to": ["b@y.com"],
+                "from": "a@x.com",
+                "delivery": {"recipient": "b@y.com", "timestamp": "2026-07-13T10:00:00+00:00"},
+            },
+        }
+    ).encode()
+
+
+def _post(body: bytes, headers: dict[str, str]) -> "object":
+    return client.post("/inbox", content=body, headers={**headers, "Content-Type": "application/json"})
+
+
+# --- Handshake ---------------------------------------------------------------------
 
 
 def test_handshake_echoes_challenge_at_root() -> None:
@@ -45,49 +80,67 @@ def test_liveness_without_challenge() -> None:
     assert "alive" in r.text
 
 
-def test_signature_valid_matches_sender_algorithm() -> None:
-    raw = json.dumps({"type": "email.delivered", "data": {"id": 1}}).encode()
-    sig = _sign(b"test-secret", raw, "d1", "2026-07-13T10:00:00+00:00")
-    assert _check_signature(raw, sig, "d1", "2026-07-13T10:00:00+00:00").startswith("valid")
+# --- Delivery with a secret set (strict verification) ------------------------------
 
 
-def test_signature_invalid_when_id_or_ts_differs() -> None:
-    raw = json.dumps({"type": "email.delivered"}).encode()
-    sig = _sign(b"test-secret", raw, "d1", "2026-07-13T10:00:00+00:00")
-    # A tampered id or timestamp must not verify against a signature bound to the originals.
-    assert "INVALID" in _check_signature(raw, sig, "d2", "2026-07-13T10:00:00+00:00")
-    assert "INVALID" in _check_signature(raw, sig, "d1", "2026-07-13T11:00:00+00:00")
-
-
-def test_signature_invalid_is_rejected() -> None:
-    assert "INVALID" in _check_signature(b"{}", "sha256=deadbeef", "d1", "2026-07-13T10:00:00+00:00")
-
-
-def test_signature_skipped_without_secret(monkeypatch) -> None:
-    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
-    assert "skipped" in _check_signature(b"{}", "sha256=whatever", "d1", "2026-07-13T10:00:00+00:00")
-
-
-def test_post_json_delivery_returns_200() -> None:
-    raw = json.dumps({"type": "email.opened"}).encode()
-    ts = "2026-07-13T10:00:00+00:00"
-    r = client.post(
-        "/inbox",
-        content=raw,
-        headers={
-            "X-Webhook-Sig": _sign(b"test-secret", raw, "d1", ts),
-            "X-Webhook-Id": "d1",
-            "X-Webhook-Ts": ts,
-            "Content-Type": "application/json",
-        },
-    )
+def test_valid_signature_accepted() -> None:
+    body = _delivered_payload()
+    r = _post(body, _sign(body))
     assert r.status_code == 200
     assert r.text == "received"
 
 
-def test_post_non_json_delivery_returns_200() -> None:
+def test_tampered_body_rejected_400() -> None:
+    body = _delivered_payload()
+    headers = _sign(body)
+    r = _post(b'{"type":"email.delivered"}', headers)  # signature bound to the original body
+    assert r.status_code == 400
+
+
+def test_wrong_id_rejected_400() -> None:
+    body = _delivered_payload()
+    headers = _sign(body)
+    headers["X-Webhook-Id"] = "other"
+    r = _post(body, headers)
+    assert r.status_code == 400
+
+
+def test_missing_signature_headers_rejected_400() -> None:
+    r = _post(_delivered_payload(), {})
+    assert r.status_code == 400
+
+
+def test_stale_timestamp_rejected_400() -> None:
+    body = _delivered_payload()
+    stale = "2020-01-01T00:00:00+00:00"
+    r = _post(body, _sign(body, ts=stale))
+    assert r.status_code == 400
+
+
+# --- Delivery with no secret (verification skipped, still logged) ------------------
+
+
+def test_json_delivery_without_secret_returns_200(monkeypatch) -> None:
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    r = _post(_delivered_payload(), {})
+    assert r.status_code == 200
+    assert r.text == "received"
+
+
+def test_non_json_delivery_without_secret_returns_200(monkeypatch) -> None:
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
     r = client.post("/inbox", content=b"not-json", headers={"Content-Type": "text/plain"})
     assert r.status_code == 200
+
+
+def test_unknown_event_type_without_secret_returns_200(monkeypatch) -> None:
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    body = json.dumps({"type": "email.reopened", "created_at": "2026-07-13T10:00:00+00:00", "data": {}}).encode()
+    r = _post(body, {})
+    assert r.status_code == 200
+
+
+# --- Lifespan ----------------------------------------------------------------------
 
 
 def test_lifespan_runs_without_tunnel() -> None:

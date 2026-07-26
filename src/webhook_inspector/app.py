@@ -2,23 +2,27 @@
 """FastAPI receiver: verification handshake, delivery logging, and signature checks.
 
 This is the heart of webhook_inspector. It answers the mailkube verification handshake so
-endpoint creation (and ``endpoint_url`` changes) succeed, then logs incoming deliveries
-and — when ``WEBHOOK_SECRET`` is set — verifies the ``X-Webhook-Sig`` HMAC-SHA256 header.
-See ``.rules/WEBHOOK_CONTRACT.md`` for the contract this mirrors.
+endpoint creation (and ``endpoint_url`` changes) succeed, then logs incoming deliveries and —
+when ``WEBHOOK_SECRET`` is set — verifies the ``X-Webhook-Sig`` HMAC-SHA256 signature and rejects
+bad deliveries with ``400``.
+
+Verification and parsing are delegated to the published ``mailkube`` SDK
+(``verify_signature`` / ``parse_event``) rather than reimplemented here, so this tool stays
+byte-compatible with the signing contract by construction and doubles as a live SDK example.
+See ``.rules/WEBHOOK_CONTRACT.md`` for the wire contract the SDK mirrors.
 """
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
+from mailkube import SignatureVerificationError, UnknownEvent, parse_event, verify_signature
+from pydantic import ValidationError
 
 from webhook_inspector.tunnel import close_tunnel, open_tunnel
 
@@ -44,45 +48,45 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="webhook-inspector", lifespan=lifespan)
 
 
-FRESHNESS_TOLERANCE_SECONDS = 300
+def _summarize(raw: bytes) -> tuple[str, str]:
+    """Return ``(event-type headline, pretty body)`` for a delivery via the SDK's typed models.
 
-
-def _timestamp_age(ts: str) -> str:
-    """Return a human note about how old ``X-Webhook-Ts`` is, for replay-window awareness.
-
-    Informational only — this dev tool always accepts the delivery. A production receiver
-    would *reject* a timestamp older than its tolerance (see ``.rules/WEBHOOK_CONTRACT.md``).
+    Falls back to the raw decoded text when the body is not a parseable webhook event, so the
+    inspector still shows arbitrary test POSTs. ``model_dump(by_alias=True)`` re-emits the wire
+    field names (``from``, ``ipAddress``) and — because the SDK models allow extra keys —
+    preserves any fields a newer server version added.
     """
     try:
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(ts)).total_seconds()
-    except ValueError:
-        return ""
-    flag = "fresh" if abs(age) <= FRESHNESS_TOLERANCE_SECONDS else f"stale > {FRESHNESS_TOLERANCE_SECONDS}s"
-    return f"  (age {age:.0f}s, {flag})"
+        event = parse_event(raw)
+    except ValidationError:
+        return "unparseable (not a JSON event)", raw.decode("utf-8", "replace")
+    headline = event.type + (" [unrecognized type]" if isinstance(event, UnknownEvent) else "")
+    body = json.dumps(event.model_dump(by_alias=True), indent=2, default=str)
+    return headline, body
 
 
-def _check_signature(raw_body: bytes, sig_header: str, webhook_id: str, ts: str) -> str:
-    """Verify ``X-Webhook-Sig`` against ``WEBHOOK_SECRET``; return a human verdict.
-
-    Mirrors the sender side exactly: the HMAC-SHA256 is computed over the signing input
-    ``f"{X-Webhook-Id}.{X-Webhook-Ts}.".encode() + raw_body`` and sent as ``sha256=<hex>``.
-    The raw body bytes must be used as-received (never a re-serialized JSON) or the digest
-    won't match. ``X-Webhook-Id``/``X-Webhook-Ts`` are read from the delivery headers.
-    """
-    secret = os.environ.get("WEBHOOK_SECRET", "")
-    if not secret:
-        return "skipped (set WEBHOOK_SECRET to verify)"
-    expected = sig_header.removeprefix("sha256=")
-    signing_input = f"{webhook_id}.{ts}.".encode() + raw_body
-    actual = hmac.new(secret.encode(), signing_input, hashlib.sha256).hexdigest()
-    return "valid ✅" if hmac.compare_digest(actual, expected) else "INVALID ❌"
+def _log_delivery(headers: Mapping[str, str], raw: bytes, *, verified: bool) -> None:
+    """Print a received delivery: identity headers, verification state, typed event summary."""
+    headline, body = _summarize(raw)
+    signature = "verified ✅" if verified else "unverified (no WEBHOOK_SECRET)"
+    print(
+        "\n📨 delivery received"
+        f"\n   Webhook-Id : {headers.get('x-webhook-id', '')}"
+        f"\n   Webhook-Ts : {headers.get('x-webhook-ts', '')}"
+        f"\n   Signature  : {signature}"
+        f"\n   Event      : {headline}"
+        f"\n   Body       : {body}\n"
+    )
 
 
+# NOTE: this handler is named ``verify`` — do not import the SDK's ``mailkube.verify`` into this
+# module or it will collide. The signature gate below deliberately uses ``verify_signature``.
 @app.get("/{_path:path}")
 async def verify(request: Request) -> Response:
     """Verification handshake — echo ``hub.challenge`` verbatim with HTTP 200.
 
-    Matches any path, so any URL under the tunnel works as a webhook ``endpoint_url``.
+    Matches any path, so any URL under the tunnel works as a webhook ``endpoint_url``. The SDK
+    ships no helper for this handshake, so it stays hand-written.
     """
     challenge = request.query_params.get("hub.challenge")
     if challenge:
@@ -93,20 +97,20 @@ async def verify(request: Request) -> Response:
 
 @app.post("/{_path:path}")
 async def receive(request: Request) -> Response:
-    """Log a webhook delivery; always answers 200 so mailkube marks it delivered."""
+    """Verify (when a secret is set) and log a delivery; reject a bad signature with 400.
+
+    With ``WEBHOOK_SECRET`` set, the ``mailkube`` SDK checks the HMAC-SHA256 signature and the
+    ``X-Webhook-Ts`` freshness window (~5 min); a missing, stale, or mismatched signature is
+    rejected. Without a secret, verification is skipped and the delivery is logged unverified so
+    the tool can still inspect arbitrary POSTs.
+    """
     raw = await request.body()
-    webhook_id = request.headers.get("x-webhook-id", "")
-    ts = request.headers.get("x-webhook-ts", "")
-    verdict = _check_signature(raw, request.headers.get("x-webhook-sig", ""), webhook_id, ts)
-    try:
-        body = json.dumps(json.loads(raw), indent=2)
-    except ValueError:
-        body = raw.decode("utf-8", "replace")
-    print(
-        "\n📨 delivery received"
-        f"\n   Webhook-Id : {webhook_id}"
-        f"\n   Webhook-Ts : {ts}{_timestamp_age(ts)}"
-        f"\n   Signature  : {verdict}"
-        f"\n   Body       : {body}\n"
-    )
+    secret = os.environ.get("WEBHOOK_SECRET", "")
+    if secret:
+        try:
+            verify_signature(raw, request.headers, secret)
+        except SignatureVerificationError as exc:
+            print(f"\n🚫 delivery rejected: {exc}\n")
+            return Response(content=str(exc), status_code=400, media_type="text/plain")
+    _log_delivery(request.headers, raw, verified=bool(secret))
     return Response(content="received", status_code=200, media_type="text/plain")

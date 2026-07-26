@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/mailkube/webhook-inspector/actions/workflows/ci.yml/badge.svg)](https://github.com/mailkube/webhook-inspector/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Code of Conduct](https://img.shields.io/badge/Contributor%20Covenant-2.1-purple.svg)](CODE_OF_CONDUCT.md)
 
@@ -143,9 +143,21 @@ it on any path.
 **Signature.** Deliveries arrive as `POST`s carrying `X-Webhook-Sig: sha256=<hmac>`, where the
 HMAC is SHA-256 over `"{X-Webhook-Id}.{X-Webhook-Ts}.".encode() + raw_body` using your signing
 secret. `X-Webhook-Id` is stable across retries (dedupe on it); `X-Webhook-Ts` is a fresh
-per-attempt timestamp, so a production receiver can reject stale replays (~5 min tolerance).
-webhook-inspector recomputes and compares the signature when `WEBHOOK_SECRET` is set, and prints
-the timestamp age.
+per-attempt timestamp, so stale replays are rejected (~5 min tolerance).
+
+webhook-inspector delegates verification and parsing to the published
+[`mailkube`](https://pypi.org/project/mailkube/) Python SDK, so it stays byte-compatible with the
+signing contract and doubles as a live SDK example:
+
+- `mailkube.verify_signature(raw_body, headers, secret)` checks the HMAC **and** the timestamp
+  freshness window, raising `SignatureVerificationError` on a missing, stale, or mismatched
+  signature. When `WEBHOOK_SECRET` is set, such a delivery is **rejected with `400`**; without a
+  secret, verification is skipped and the delivery is logged as unverified.
+- `mailkube.parse_event(raw_body)` turns the body into a typed event model (an unrecognized
+  `type` becomes `UnknownEvent` rather than raising), which is what gets summarized in the log.
+
+A real receiver can collapse both into the one-liner `mailkube.verify(raw_body, headers, secret)`;
+this tool keeps them separate so it can still log deliveries when no secret is configured.
 
 ## Configuration
 

@@ -84,7 +84,7 @@ async def _open_quick_tunnel(port: int, protocol: str) -> _Tunnel | None:
 
     try:
         url = await asyncio.wait_for(_read_url(process.stderr), _URL_TIMEOUT)
-    except (TimeoutError, asyncio.TimeoutError):
+    except TimeoutError:
         print(
             "\n⚠️  cloudflared tunnel timed out before reporting a URL."
             "\n   Serving locally only; retry or run with --no-tunnel.\n",
@@ -126,7 +126,7 @@ async def _open_named_tunnel(port: int, tunnel_name: str) -> _Tunnel | None:
     # (bad tunnel name, not logged in, etc.) before declaring success.
     try:
         exited = await asyncio.wait_for(process.wait(), timeout=3.0)
-    except (TimeoutError, asyncio.TimeoutError):
+    except TimeoutError:
         exited = None  # still running — good
 
     if exited is not None:
@@ -178,7 +178,7 @@ async def _terminate(process: asyncio.subprocess.Process) -> None:
     try:
         process.terminate()
         await asyncio.wait_for(process.wait(), timeout=5)
-    except (TimeoutError, asyncio.TimeoutError):
+    except TimeoutError:
         process.kill()
     except ProcessLookupError:
         pass

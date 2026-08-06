@@ -24,7 +24,7 @@ dependencies = [
     "fastapi>=0.139.2",
     "uvicorn[standard]>=0.51.0",
     "python-dotenv>=1.0",
-    "mailkube>=1.0.0",
+    "mailkube>=1.2.0",
     "pydantic>=2.7,<3",
 ]
 

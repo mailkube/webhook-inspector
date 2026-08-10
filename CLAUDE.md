@@ -10,7 +10,7 @@ the task.
 
 | Rule File | Load When |
 |---|---|
-| `.rules/WEBHOOK_CONTRACT.md` | Touching the verification handshake or `X-Webhook-Sig` signature logic — it must stay byte-compatible with the mailkube API (the source of truth). |
+| `.rules/WEBHOOK_CONTRACT.md` | Touching the verification handshake, `X-Webhook-Sig` signature logic, or the set of webhook event types this tool decodes — all three must stay in step with the mailkube API (the source of truth), the event catalogue via the `mailkube` SDK floor. |
 
 ## Key Conventions (always apply)
 

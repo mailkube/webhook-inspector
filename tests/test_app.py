@@ -13,6 +13,8 @@ import json
 import os
 from datetime import UTC, datetime
 
+import pytest
+
 os.environ.setdefault("USE_TUNNEL", "false")
 os.environ.setdefault("WEBHOOK_SECRET", "test-secret")
 
@@ -37,22 +39,28 @@ def _sign(body: bytes, *, webhook_id: str = "d1", ts: str | None = None) -> dict
     return {"X-Webhook-Id": webhook_id, "X-Webhook-Ts": timestamp, "X-Webhook-Sig": f"sha256={digest}"}
 
 
+TIMESTAMP = "2026-07-13T10:00:00+00:00"
+
+
+def _msg_ctx() -> dict[str, object]:
+    # The block every email.* event shares, tags included (see api/mail/payloads/message_context.py).
+    return {
+        "email_id": "e1",
+        "created_at": TIMESTAMP,
+        "domain": "acme.com",
+        "subject": "Hi",
+        "to": ["b@y.com"],
+        "from": "a@x.com",
+        "tags": [{"name": "campaign", "value": "welcome"}],
+    }
+
+
+def _event(event_type: str, block: dict[str, object]) -> bytes:
+    return json.dumps({"type": event_type, "created_at": TIMESTAMP, "data": {**_msg_ctx(), **block}}).encode()
+
+
 def _delivered_payload() -> bytes:
-    return json.dumps(
-        {
-            "type": "email.delivered",
-            "created_at": "2026-07-13T10:00:00+00:00",
-            "data": {
-                "email_id": "e1",
-                "created_at": "2026-07-13T10:00:00+00:00",
-                "domain": "acme.com",
-                "subject": "Hi",
-                "to": ["b@y.com"],
-                "from": "a@x.com",
-                "delivery": {"recipient": "b@y.com", "timestamp": "2026-07-13T10:00:00+00:00"},
-            },
-        }
-    ).encode()
+    return _event("email.delivered", {"delivery": {"recipient": "b@y.com", "timestamp": TIMESTAMP}})
 
 
 def _post(body: bytes, headers: dict[str, str]) -> "object":
@@ -115,6 +123,34 @@ def test_stale_timestamp_rejected_400() -> None:
     stale = "2020-01-01T00:00:00+00:00"
     r = _post(body, _sign(body, ts=stale))
     assert r.status_code == 400
+
+
+# --- Event catalogue (the SDK floor is what keeps these typed) ---------------------
+
+SCHEDULED_SEND_EVENTS = {
+    "email.sent": {"sent": {"recipient": "b@y.com", "timestamp": TIMESTAMP}},
+    "email.scheduled": {"scheduled": {"scheduled_at": "2026-07-20T09:00:00+00:00", "batch_id": None}},
+    "email.failed": {"failed": {"reason": "suppressed_at_dispatch", "timestamp": TIMESTAMP}},
+}
+
+
+@pytest.mark.parametrize("event_type", list(SCHEDULED_SEND_EVENTS))
+def test_scheduled_send_events_are_typed(event_type: str, capsys) -> None:
+    # Fails against an SDK that predates these codes: parse_event degrades them to UnknownEvent
+    # and the headline picks up the "[unrecognized type]" suffix.
+    body = _event(event_type, SCHEDULED_SEND_EVENTS[event_type])
+    assert _post(body, _sign(body)).status_code == 200
+    logged = capsys.readouterr().out
+    assert f"Event      : {event_type}" in logged
+    assert "[unrecognized type]" not in logged
+
+
+def test_message_tags_are_logged(capsys) -> None:
+    body = _delivered_payload()
+    assert _post(body, _sign(body)).status_code == 200
+    logged = capsys.readouterr().out
+    assert '"name": "campaign"' in logged
+    assert '"value": "welcome"' in logged
 
 
 # --- Delivery with no secret (verification skipped, still logged) ------------------

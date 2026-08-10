@@ -54,6 +54,26 @@ in [`src/webhook_inspector/app.py`](../src/webhook_inspector/app.py) `receive()`
 what keeps this tool byte-compatible with the API instead of a hand-rolled copy. Guarded by
 `tests/test_app.py`, which reproduces the sender's algorithm independently.
 
+## 3. Event catalogue (owned by the SDK, not by this repo)
+
+The two contracts above are transport. *Which* event types decode into typed models is a third
+contract, and this tool does not implement it: `mailkube.parse_event` does, and an event code
+the installed SDK version does not model is returned as `UnknownEvent` and logged with an
+`[unrecognized type]` suffix.
+
+That degradation is deliberate and must stay non-fatal, but it is silent enough to hide drift
+for months. So:
+
+- **A new `EventCode` in the mailkube API needs an SDK release first.** Adding it here is not
+  possible and not the fix; the change belongs in `mailkube-python`
+  (`.rules/SDK_DESIGN.md`, "Checklist for a new webhook event"), and this repo then consumes it.
+- **The dependency floor is the lever.** `mailkube>=X` in `pyproject.toml` is what guarantees
+  typed parsing; a floor left behind lets a fresh resolve install a version that silently
+  degrades. Raise it in the same change that starts relying on a new event.
+- **Guard each new code with a test.** `tests/test_app.py::test_scheduled_send_events_are_typed`
+  asserts the logged headline carries no `[unrecognized type]` suffix. Add the code there rather
+  than trusting the floor.
+
 ## Changing this code
 
 - Update the tests in `tests/test_app.py` to reproduce the new contract from the API side

@@ -126,7 +126,7 @@ The image binds `0.0.0.0` so the mapped port is reachable. Configure it via `.en
    works, e.g. `…trycloudflare.com/inbox`). The verification probe hits this server, which echoes
    the challenge → creation returns **201** with a `plain_secret`.
 2. To verify delivery signatures, put that `plain_secret` into `.env` as `WEBHOOK_SECRET` and
-   restart. Each delivery then logs `Signature: valid ✅`.
+   restart. Each delivery then logs `Signature  : verified ✅`.
 3. Watch deliveries stream in the console as they arrive.
 
 ## How it works

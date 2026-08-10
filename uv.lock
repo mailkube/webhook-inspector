@@ -348,15 +348,15 @@ wheels = [
 
 [[package]]
 name = "mailkube"
-version = "1.1.0"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/32/c08bc4988fc04501624dd9148bdba17f180e88a1460cb24029f8e2bdcbfd/mailkube-1.1.0.tar.gz", hash = "sha256:acbfec054962bdafb8e62da21e0ceaf3f0b62d3227da3c6d23e9a9376ad8e8f6", size = 70666, upload-time = "2026-07-17T13:23:29.734Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/a1/d955079510abcec0d3e1407f535f242ef42c66d49dab6438b35d4a413664/mailkube-1.4.0.tar.gz", hash = "sha256:086558d920da4a1218c418d76b3ca8ce17f6a326842f81ad3b8cf0870634636e", size = 102952, upload-time = "2026-08-10T17:03:39.338Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/37/5576a2f12d76c95fac1a687daecba50077408d0ec333278fd641e377360b/mailkube-1.1.0-py3-none-any.whl", hash = "sha256:72dc90a6612ee327cf23db71a77ab6d80be6b4a6682d89bd69aeb80d9b169eba", size = 26350, upload-time = "2026-07-17T13:23:28.316Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/a9/cb71198501d471e30dfc702ffb9b038a1b5cddd0e284b40e87f0e4c19be6/mailkube-1.4.0-py3-none-any.whl", hash = "sha256:c7a4ec00842efeabe4613726b5a3fb73148249d133eee9fa42c5567c384af49b", size = 40802, upload-time = "2026-08-10T17:03:38.129Z" },
 ]
 
 [[package]]
@@ -848,7 +848,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.139.2" },
-    { name = "mailkube", specifier = ">=1.0.0" },
+    { name = "mailkube", specifier = ">=1.4.0" },
     { name = "pydantic", specifier = ">=2.7,<3" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.51.0" },

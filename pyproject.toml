@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "webhook-inspector"
 version = "0.1.0"
 description = "A local receiver for testing mailkube webhooks, with a cloudflared quick tunnel."
-authors = [{ name = "Mailtactic, Corp." }]
+authors = [{ name = "Mail Tactic Corporation" }]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"

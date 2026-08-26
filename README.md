@@ -196,4 +196,4 @@ issue for security problems.
 
 ## License
 
-[Apache License 2.0](LICENSE) — Copyright 2026 Mailtactic, Corp.
+[Apache License 2.0](LICENSE) - Copyright 2026 Mail Tactic Corporation

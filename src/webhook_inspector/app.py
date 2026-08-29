@@ -53,7 +53,7 @@ def _summarize(raw: bytes) -> tuple[str, str]:
 
     Falls back to the raw decoded text when the body is not a parseable webhook event, so the
     inspector still shows arbitrary test POSTs. ``model_dump(by_alias=True)`` re-emits the wire
-    field names (``from``, ``ipAddress``) and — because the SDK models allow extra keys —
+    field names (``from``, ``scheduled_at``) and, because the SDK models allow extra keys,
     preserves any fields a newer server version added.
     """
     try:

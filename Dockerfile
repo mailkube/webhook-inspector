@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # uv from the official distroless image.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -13,8 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 
 WORKDIR /app
 
+# The venv runs the base image's interpreter. UV_PYTHON outranks the 3.12 floor in .python-version,
+# which `COPY . .` brings in, and with downloads off uv cannot swap in a managed Python instead.
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_PYTHON=/usr/local/bin/python3 \
+    UV_PYTHON_DOWNLOADS=never \
     PYTHONUNBUFFERED=1
 
 # Install dependencies first (cached layer), without the project or dev group.

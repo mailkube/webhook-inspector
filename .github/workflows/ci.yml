@@ -15,7 +15,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
+    # Every uv command reads UV_PYTHON, so `uv run` keeps the matrix version over .python-version.
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v7
 
@@ -25,7 +28,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --frozen --python ${{ matrix.python-version }}
+        run: uv sync --frozen
 
       - name: Lint (ruff)
         run: uv run ruff check .
@@ -45,3 +48,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build image
         run: docker build -t webhook-inspector:ci .
+      - name: Venv runs the base image's Python
+        run: >-
+          docker run --rm --entrypoint sh webhook-inspector:ci -c
+          '[ "$(python -V)" = "$(/usr/local/bin/python3 -V)" ] && python -V'
